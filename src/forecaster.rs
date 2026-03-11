@@ -1,22 +1,6 @@
-//! AR(1) APY forecaster and covariance matrix builder.
-//!
-//! # How it works
-//! 1. For each pool we maintain a rolling time-series of APY observations.
-//! 2. We fit a simple AR(1) model:  y[t] = α + β·y[t-1] + ε
-//!    via OLS on consecutive observation pairs.
-//! 3. We project h steps ahead and derive a 95 % confidence interval.
-//! 4. The CI half-width relative to the forecast determines a confidence
-//!    weight used in the optimizer to shrink uncertain forecasts toward the
-//!    cross-pool mean (Stein-style shrinkage).
-//! 5. We also compute an n×n covariance matrix from the aligned history
-//!    and apply a small regularisation (Ledoit-Wolf-lite diagonal nudge) to
-//!    keep the matrix invertible when history is short.
 
 use std::collections::HashMap;
 
-// ── AR(1) model ───────────────────────────────────────────────────────────────
-
-/// Fitted AR(1) model for a single pool's APY series.
 #[derive(Debug, Clone)]
 pub struct AR1Model {
     /// OLS intercept.
@@ -30,8 +14,6 @@ pub struct AR1Model {
 }
 
 impl AR1Model {
-    /// Fit AR(1) via OLS on a slice of APY observations (chronological order).
-    /// Returns `None` when fewer than `MIN_OBS` observations are provided.
     pub fn fit(observations: &[f64]) -> Option<Self> {
         const MIN_OBS: usize = 10;
         let n = observations.len();
@@ -79,11 +61,9 @@ impl AR1Model {
         Some(AR1Model { alpha, beta, sigma, mean_reversion_level })
     }
 
-    /// h-step-ahead point forecast and 95 % confidence interval half-width.
     pub fn forecast(&self, current_apy: f64, horizon_days: u32) -> (f64, f64) {
         let h = horizon_days as i32;
 
-        // E[y_{t+h}] = α·(1−β^h)/(1−β) + β^h·y_t
         let beta_h = self.beta.powi(h);
         let point = if (1.0 - self.beta).abs() > f64::EPSILON {
             self.alpha * (1.0 - beta_h) / (1.0 - self.beta) + beta_h * current_apy
@@ -91,7 +71,6 @@ impl AR1Model {
             current_apy
         };
 
-        // Var[y_{t+h}] = σ² · Σ_{k=0}^{h-1} β^{2k}
         let variance: f64 = (0..h)
             .map(|k| self.sigma.powi(2) * self.beta.powi(2 * k))
             .sum();
@@ -100,9 +79,6 @@ impl AR1Model {
         (point.max(0.0), ci)
     }
 
-    /// Confidence weight in [0, 1].
-    /// Returns 1.0 when the CI is tight relative to the forecast;
-    /// approaches 0.0 when uncertainty is very high.
     pub fn confidence_weight(&self, current_apy: f64, horizon_days: u32) -> f64 {
         let (forecast, ci) = self.forecast(current_apy, horizon_days);
         if forecast.abs() < f64::EPSILON {
@@ -112,9 +88,6 @@ impl AR1Model {
     }
 }
 
-// ── Covariance matrix ─────────────────────────────────────────────────────────
-
-/// n×n sample covariance matrix over pool APY histories.
 pub struct CovarianceMatrix {
     pub pool_ids: Vec<String>,
     /// Row-major n×n matrix.
@@ -122,8 +95,6 @@ pub struct CovarianceMatrix {
 }
 
 impl CovarianceMatrix {
-    /// Compute from a map of pool_id → chronological APY observations.
-    /// Series are aligned to the shortest common length.
     pub fn compute(history: &HashMap<String, Vec<f64>>) -> Self {
         let pool_ids: Vec<String> = history.keys().cloned().collect();
         let n = pool_ids.len();
@@ -156,8 +127,6 @@ impl CovarianceMatrix {
         CovarianceMatrix { pool_ids, matrix }
     }
 
-    /// Ledoit-Wolf-lite regularisation:  Σ_reg = (1−ε)·Σ + ε·diag(Σ)
-    /// Ensures Σ is positive-definite when history is short or correlated.
     pub fn regularize(&mut self, epsilon: f64) {
         let n = self.pool_ids.len();
         for i in 0..n {
