@@ -1,20 +1,3 @@
-//! Markowitz mean-variance optimizer with projected gradient descent.
-//!
-//! Solves:
-//!   maximize  wᵀμ_adj − λ·wᵀΣw
-//!   subject to:
-//!     Σ w_i  = 1                     (fully invested)
-//!     w_i ≥ min_weight               (minimum position size)
-//!     w_i ≤ min(max_weight, liq_cap) (concentration + liquidity)
-//!     w_i = 0  if not eligible       (hard compliance gate)
-//!
-//! μ_adj[i] = conf[i]·μ_pred[i] + (1−conf[i])·μ̄
-//! This shrinks uncertain forecasts toward the cross-pool mean
-//! (Stein-style shrinkage), reducing sensitivity to bad AR(1) fits.
-//!
-//! The projected gradient loop runs up to `max_iterations` steps.
-//! For typical DeFi pool sets (< 50 pools) it converges in < 200 iterations.
-
 #[derive(Debug, Clone)]
 pub struct AllocationOptimizer {
     /// λ — Markowitz risk-aversion parameter (higher = more conservative).
