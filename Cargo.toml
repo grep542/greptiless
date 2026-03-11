@@ -1,0 +1,47 @@
+[package]
+name = "greptiles"
+version = "0.2.0"
+edition = "2021"
+description = "Compliance-aware DeFi capital router with predictive Markowitz allocation"
+license = "MIT"
+repository = "https://github.com/grep542/greptiles"
+keywords = ["defi", "compliance", "keyring", "ethereum", "yield"]
+categories = ["cryptography::cryptocurrencies"]
+
+[lib]
+name = "greptiles"
+path = "src/lib.rs"
+
+[dependencies]
+tokio          = { version = "1.35", features = ["full"] }
+reqwest        = { version = "0.11", features = ["json", "rustls-tls"], default-features = false }
+serde          = { version = "1.0",  features = ["derive"] }
+serde_json     = "1.0"
+ethers         = { version = "2.0",  features = ["rustls"] }
+thiserror      = "1.0"
+anyhow         = "1.0"
+clap           = { version = "4.4",  features = ["derive"] }
+async-trait    = "0.1"
+tracing        = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rust_decimal   = { version = "1.33", features = ["serde-with-str"] }
+rust_decimal_macros = "1.33"
+chrono         = { version = "0.4",  features = ["serde"] }
+url            = "2.5"
+
+[dev-dependencies]
+tokio-test  = "0.4"
+mockito     = "1.2"
+dotenv      = "0.15"
+
+[[bin]]
+name = "greptiles"
+path = "src/main.rs"
+
+[[example]]
+name = "basic_routing"
+path = "examples/basic_routing.rs"
+
+[[example]]
+name = "institutional_flow"
+path = "examples/institutional_flow.rs"
