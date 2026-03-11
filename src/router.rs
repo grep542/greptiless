@@ -1,13 +1,3 @@
-//! CapitalRouter — orchestrates identity check → yield scan →
-//!                 compliance filter → predictive allocation.
-//!
-//! Key changes from v0.1:
-//!  - rank_opportunities replaced by allocate_opportunities (Markowitz + AR1)
-//!  - APY history stored per-fetch via InMemoryApyStore
-//!  - Lido TVL fetched live from DeFiLlama
-//!  - risk_aversion exposed in RouterConfig and RoutingResult
-//!  - minimum-data guard: if fewer than 2 protocols returned data, abort
-
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -54,7 +44,6 @@ impl CapitalRouter {
         Self { config, keyring, scanner, history }
     }
 
-    /// Inject a custom history store (e.g. for testing or TimescaleDB backend).
     pub fn with_history_store(mut self, store: Arc<dyn ApyHistoryStore>) -> Self {
         self.history = store;
         self
@@ -76,7 +65,6 @@ impl CapitalRouter {
             wallet_address, capital_amount_usd, chain
         );
 
-        // ── Step 1: Identity check ─────────────────────────────────────────
         let identity = self.keyring.verify_wallet(wallet_address, &chain).await?;
 
         if !identity.passes_default_policy {
@@ -91,7 +79,6 @@ impl CapitalRouter {
             wallet_address, identity.credentials.len()
         );
 
-        // ── Step 2: Yield scan ─────────────────────────────────────────────
         let raw_opportunities = self.scanner.fetch_opportunities(&chain).await?;
         let total_scanned = raw_opportunities.len();
 
@@ -102,7 +89,6 @@ impl CapitalRouter {
             });
         }
 
-        // ── Step 2a: Persist APY observations for forecasting ──────────────
         for opp in &raw_opportunities {
             let apy_f = match Decimal::to_f64(&opp.apy) {
                 Some(v) if v > 0.0 => v,
@@ -119,8 +105,6 @@ impl CapitalRouter {
             }
         }
 
-        // ── Step 2b: Minimum-data guard ────────────────────────────────────
-        // Count how many distinct protocols actually returned data.
         let protocols_with_data: std::collections::HashSet<_> = raw_opportunities
             .iter()
             .map(|o| &o.protocol)
@@ -131,11 +115,8 @@ impl CapitalRouter {
                 protocols_with_data.len(),
                 chain
             );
-            // We proceed but log the warning. In a stricter deployment you
-            // could return Err here if you require >= 2 live protocol sources.
         }
 
-        // ── Step 3: Compliance filter ──────────────────────────────────────
         let compliance_config = ComplianceConfig {
             max_risk_tier: self.config.max_risk_tier.clone(),
             min_tvl_usd: self.config.min_tvl_usd,
@@ -153,7 +134,6 @@ impl CapitalRouter {
             return Err(RouterError::NoCompliantOpportunities { total: total_scanned });
         }
 
-        // ── Step 4: Predictive Markowitz allocation ────────────────────────
         let mut routes = self
             .allocate_opportunities(compliant, capital_amount_usd)
             .await?;
@@ -181,7 +161,6 @@ impl CapitalRouter {
         })
     }
 
-    // ── Predictive allocation ─────────────────────────────────────────────────
 
     async fn allocate_opportunities(
         &self,
@@ -191,14 +170,12 @@ impl CapitalRouter {
         let pool_ids: Vec<&str> = compliant.iter().map(|(o, _)| o.id.as_str()).collect();
         let n = compliant.len();
 
-        // ── Fetch APY history for all pools ───────────────────────────────
         let histories = self
             .history
             .fetch_batch(&pool_ids, 30)
             .await
             .unwrap_or_default();
 
-        // ── AR(1) forecast per pool ───────────────────────────────────────
         let mut predicted_apys: Vec<f64> = Vec::with_capacity(n);
         let mut confidence_weights: Vec<f64> = Vec::with_capacity(n);
 
@@ -227,7 +204,6 @@ impl CapitalRouter {
             }
         }
 
-        // ── Covariance matrix ─────────────────────────────────────────────
         let cov_matrix = if histories.len() >= 2 {
             let mut cov = CovarianceMatrix::compute(&histories);
             cov.regularize(0.05);
@@ -238,7 +214,6 @@ impl CapitalRouter {
             diagonal_cov(&predicted_apys)
         };
 
-        // ── Liquidity caps ────────────────────────────────────────────────
         let capital_f = Decimal::to_f64(&capital).unwrap_or(1.0).max(f64::EPSILON);
         let liquidity_caps: Vec<f64> = compliant
             .iter()
@@ -249,7 +224,6 @@ impl CapitalRouter {
             })
             .collect();
 
-        // ── Solve ─────────────────────────────────────────────────────────
         let optimizer = AllocationOptimizer::new(
             self.config.risk_aversion,
             self.config.min_pool_weight,
@@ -264,7 +238,6 @@ impl CapitalRouter {
             &confidence_weights,
         );
 
-        // ── Build CapitalRoutes ───────────────────────────────────────────
         let routes = compliant
             .into_iter()
             .zip(weights.iter())
@@ -307,10 +280,7 @@ impl CapitalRouter {
     }
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
-/// Re-order the CovarianceMatrix rows/cols to match the order of `pool_ids`.
-/// Pools not in the history are given a small diagonal variance.
 fn reorder_cov_matrix(cov: CovarianceMatrix, pool_ids: &[&str]) -> Vec<Vec<f64>> {
     let n = pool_ids.len();
     let mut matrix = vec![vec![1e-6_f64; n]; n];
@@ -329,7 +299,6 @@ fn reorder_cov_matrix(cov: CovarianceMatrix, pool_ids: &[&str]) -> Vec<Vec<f64>>
     matrix
 }
 
-/// Identity-scaled covariance when history is insufficient.
 fn diagonal_cov(returns: &[f64]) -> Vec<Vec<f64>> {
     let n = returns.len();
     (0..n)
@@ -341,7 +310,6 @@ fn diagonal_cov(returns: &[f64]) -> Vec<Vec<f64>> {
         .collect()
 }
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
 #[cfg(test)]
 mod tests {
     use super::*;
