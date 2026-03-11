@@ -1,15 +1,3 @@
-//! In-memory APY history store with optional persistence via JSON.
-//!
-//! In production this should be backed by TimescaleDB or Redis Streams,
-//! but the trait interface means you can swap that in without touching
-//! the router. The in-memory implementation is fully functional for
-//! development, single-instance deployments, and integration tests.
-//!
-//! # Persistence
-//! Call `store.save_to_file(path)` periodically (e.g. on shutdown or
-//! every N writes) and `InMemoryApyStore::load_from_file(path)` on
-//! startup to survive process restarts.
-
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
