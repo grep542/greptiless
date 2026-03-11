@@ -1,11 +1,3 @@
-//! Keyring Network identity verification client.
-//!
-//! Changes from v0.1:
-//!  - API key stored as ApiKey newtype (never printed in logs)
-//!  - passes_default_policy fallback is now fail-closed (returns Err, not silent true)
-//!  - wallet address validated before any network call
-//!  - keyring_contract_address returns Option; unsupported chains return Err
-
 use std::sync::Arc;
 use std::time::Duration;
 
